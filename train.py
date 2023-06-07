@@ -16,6 +16,34 @@ from tensorflow.keras.models import load_model
 import matplotlib.pyplot as plt
 import time
 import os
+import sys
+import argparse
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Dao's rPPG estimate heart rate")
+    parser.add_argument(
+        "-g", "--GT_path", type=str, required=True, help="path of Ground Truth excel"
+    )
+    parser.add_argument(
+        "-r", "--root_dir_path", type=str, required=True, help="path of directory with video sample "
+    )
+    parser.add_argument(
+        "--output_dir",
+        default="./result/",
+        type=str,
+        help="the path of result (default : %(default)s)",
+    )
+    parser.add_argument(
+        "-s",
+        "--display",
+        action='store_true',
+        default=False,
+        help="display training result or not (default : %(default)s)",
+    )
+    args = parser.parse_args(argv)
+    return args
 
 
 def augment_data(image, label):
@@ -39,11 +67,14 @@ def rmse(y_true, y_pred):
 
 
 if __name__ == "__main__":
+    args = parse_args(sys.argv[1:])
     # dataset path
-    dataset_file = "../dataset/new_dataset/RAMOH_mds_updrs_label_20230516update_finish.xls"
+    # dataset_file = "../dataset/new_dataset/RAMOH_mds_updrs_label_20230516update_finish.xls"
+    dataset_file = args.GT_path
     videoName, labels = read_excel_file(dataset_file)
     # 讀取影片並處理
-    root_directory = "../dataset/new_dataset/video/"
+    # root_directory = "../dataset/new_dataset/video/"
+    root_directory = args.root_dir_path
     video_paths = [os.path.join(root_directory, video) for video in videoName]
     height, width, channels = 112, 112, 3
     # 切分訓練、驗證和測試集
@@ -76,9 +107,9 @@ if __name__ == "__main__":
         Dense(256, activation='relu', kernel_regularizer=l2(0.001)),
         Dropout(0.5),
         Dense(128, activation='relu', kernel_regularizer=l2(0.001)),
-        #Dense(128, activation='relu'),
+        # Dense(128, activation='relu'),
         Dropout(0.5),
-        #Dense(64, activation='relu'),
+        # Dense(64, activation='relu'),
         Dense(64, activation='relu', kernel_regularizer=l2(0.001)),
         Dropout(0.5),
         Dense(2, activation='relu')
@@ -91,8 +122,9 @@ if __name__ == "__main__":
     early_stopping = EarlyStopping(
         patience=3, monitor='val_loss', restore_best_weights=True)
 
+    save_path = os.path.join(args.output_dir, 'best_model.h5')
     checkpoint = ModelCheckpoint(
-        'best_model.h5', monitor='val_loss', save_best_only=True, mode='min', verbose=1)
+        save_path, monitor='val_loss', save_best_only=True, mode='min', verbose=1)
 
 # 訓練模型
     epochs = 30
@@ -109,7 +141,7 @@ if __name__ == "__main__":
                         steps_per_epoch=steps_per_epoch,
                         validation_data=val_generator,
                         validation_steps=validation_steps,
-                        callbacks=[checkpoint])
+                        callbacks=[early_stopping, checkpoint])
     train_end_time = time.time()
 
     # 獲取訓練和驗證損失
@@ -120,28 +152,29 @@ if __name__ == "__main__":
     train_mae = history.history['mae']
     val_mae = history.history['val_mae']
 
-    # 繪製訓練和驗證損失
-    plt.plot(history.history['loss'], label='Training Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.show()
+    if args.display:
+        # 繪製訓練和驗證損失
+        plt.plot(history.history['loss'], label='Training Loss')
+        plt.plot(history.history['val_loss'], label='Validation Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.show()
 
-    # 繪製訓練和驗證準確度
-    plt.plot(history.history['mae'], label='Training Accuracy')
-    plt.plot(history.history['val_mae'], label='Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('MAE')
-    plt.legend()
-    plt.show()
+        # 繪製訓練和驗證準確度
+        plt.plot(history.history['mae'], label='Training Accuracy')
+        plt.plot(history.history['val_mae'], label='Validation Accuracy')
+        plt.xlabel('Epoch')
+        plt.ylabel('MAE')
+        plt.legend()
+        plt.show()
 
     # 評估模型
     test_generator = DataGenerator(
         test_paths, test_labels, batch_size, preprocess_frame)
     test_steps = len(test_paths) // batch_size
 
-    model = load_model('best_model.h5', custom_objects={'rmse': rmse})
+    model = load_model(save_path, custom_objects={'rmse': rmse})
 
     test_start_time = time.time()
     test_loss, test_mae, test_rmse = model.evaluate(
