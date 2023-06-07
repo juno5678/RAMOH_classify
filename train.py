@@ -21,14 +21,9 @@ import argparse
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(
-        description="Dao's rPPG estimate heart rate")
-    parser.add_argument(
-        "-g", "--GT_path", type=str, required=True, help="path of Ground Truth excel"
-    )
-    parser.add_argument(
-        "-r", "--root_dir_path", type=str, required=True, help="path of directory with video sample "
-    )
+    parser = argparse.ArgumentParser(description="Dao's rPPG estimate heart rate")
+    parser.add_argument("-g", "--GT_path", type=str, required=True, help="path of Ground Truth excel")
+    parser.add_argument("-r", "--root_dir_path", type=str, required=True, help="path of directory with video sample ")
     parser.add_argument(
         "--output_dir",
         default="./result/",
@@ -49,6 +44,7 @@ def parse_args(argv):
 def augment_data(image, label):
     augmented_images = datagen.flow(image, shuffle=False).next()
     return augmented_images, label
+
 
 # 影片預處理函數
 
@@ -78,22 +74,17 @@ if __name__ == "__main__":
     video_paths = [os.path.join(root_directory, video) for video in videoName]
     height, width, channels = 112, 112, 3
     # 切分訓練、驗證和測試集
-    train_paths, test_paths, train_labels, test_labels = train_test_split(
-        video_paths, labels, test_size=0.2)
-    train_paths, val_paths, train_labels, val_labels = train_test_split(
-        train_paths, train_labels, test_size=0.25)
+    train_paths, test_paths, train_labels, test_labels = train_test_split(video_paths, labels, test_size=0.2)
+    train_paths, val_paths, train_labels, val_labels = train_test_split(train_paths, train_labels, test_size=0.25)
 
     batch_size = 1
-    train_generator = DataGenerator(
-        train_paths, train_labels, batch_size, preprocess_frame)
+    train_generator = DataGenerator(train_paths, train_labels, batch_size, preprocess_frame)
 
-    val_generator = DataGenerator(
-        val_paths, val_labels, batch_size, preprocess_frame)
+    val_generator = DataGenerator(val_paths, val_labels, batch_size, preprocess_frame)
 
     # 定義神經網路模型
     model = Sequential([
-        Conv3D(32, (3, 3, 3), activation='relu',
-               input_shape=(600, height, width, channels)),
+        Conv3D(32, (3, 3, 3), activation='relu', input_shape=(600, height, width, channels)),
         MaxPooling3D((2, 2, 2)),
         Conv3D(64, (3, 3, 3), activation='relu'),
         MaxPooling3D((2, 2, 2)),
@@ -115,18 +106,16 @@ if __name__ == "__main__":
         Dense(2, activation='relu')
     ])
     optimizer = Adam(learning_rate=0.001)
-    model.compile(optimizer=optimizer,
-                  loss='mse', metrics=['mae', rmse])
+    model.compile(optimizer=optimizer, loss='mse', metrics=['mae', rmse])
     print(model.summary())
 
-    early_stopping = EarlyStopping(
-        patience=3, monitor='val_loss', restore_best_weights=True)
+    early_stopping = EarlyStopping(patience=3, monitor='val_loss', restore_best_weights=True)
 
     save_path = os.path.join(args.output_dir, 'best_model.h5')
-    checkpoint = ModelCheckpoint(
-        save_path, monitor='val_loss', save_best_only=True, mode='min', verbose=1)
+    checkpoint = ModelCheckpoint(save_path, monitor='val_loss', save_best_only=True, mode='min', verbose=1)
+    model = load_model(save_path, custom_objects={'rmse': rmse})
 
-# 訓練模型
+    # 訓練模型
     epochs = 30
     steps_per_epoch = len(train_paths) // batch_size
     print("steps per epoch : ", steps_per_epoch)
@@ -136,12 +125,7 @@ if __name__ == "__main__":
     print("train paths : ", len(val_paths))
 
     train_start_time = time.time()
-    history = model.fit(train_generator,
-                        epochs=epochs,
-                        steps_per_epoch=steps_per_epoch,
-                        validation_data=val_generator,
-                        validation_steps=validation_steps,
-                        callbacks=[early_stopping, checkpoint])
+    history = model.fit(train_generator, epochs=epochs, steps_per_epoch=steps_per_epoch, validation_data=val_generator, validation_steps=validation_steps, callbacks=[early_stopping, checkpoint])
     train_end_time = time.time()
 
     # 獲取訓練和驗證損失
@@ -170,15 +154,13 @@ if __name__ == "__main__":
         plt.show()
 
     # 評估模型
-    test_generator = DataGenerator(
-        test_paths, test_labels, batch_size, preprocess_frame)
+    test_generator = DataGenerator(test_paths, test_labels, batch_size, preprocess_frame)
     test_steps = len(test_paths) // batch_size
 
     model = load_model(save_path, custom_objects={'rmse': rmse})
 
     test_start_time = time.time()
-    test_loss, test_mae, test_rmse = model.evaluate(
-        test_generator, steps=test_steps)
+    test_loss, test_mae, test_rmse = model.evaluate(test_generator, steps=test_steps)
     test_end_time = time.time()
 
     train_time = train_end_time - train_start_time
